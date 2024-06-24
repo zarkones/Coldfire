@@ -1,18 +1,25 @@
+//go:build windows
+// +build windows
+
 package coldfire
 
 import (
 	"fmt"
 	"os"
-	"strconv"
+	"strings"
 
 	ps "github.com/mitchellh/go-ps"
+	"golang.org/x/sys/windows"
 )
 
 func killProcByPID(pid int) error {
-	p := strconv.Itoa(pid)
-	cmd := "taskkill /F /PID " + p
-	_, err := cmdOut(cmd)
-	return err
+	kernel32dll := windows.NewLazyDLL("Kernel32.dll")
+	OpenProcess := kernel32dll.NewProc("OpenProcess")
+	TerminateProcess := kernel32dll.NewProc("TerminateProcess")
+	op, _, _ := OpenProcess.Call(0x0001, 1, uintptr(pid))
+	//protip:too much error handling can screw things up
+	_, _, err2 := TerminateProcess.Call(op, 9)
+	return err2
 }
 
 func isRoot() bool {
@@ -26,25 +33,11 @@ func isRoot() bool {
 	return root
 }
 
-func info() string {
+func userinfo() string {
 	user, err := cmdOut("query user")
 	if err != nil {
 		user = "N/A"
 	}
-
-	// o, err := cmdOut("ipconfig")
-	// if err != nil {
-	// 	ap_ip = "N/A" // (1)
-	// }
-
-	// entries := strings.Split(o, "\n")
-
-	// for e := range entries {
-	// 	entry := entries[e]
-	// 	if strings.Contains(entry, "Default") {
-	// 		ap_ip = strings.Split(entry, ":")[1] // (1)
-	// 	}
-	// }
 
 	return user
 }
@@ -117,4 +110,33 @@ func disks() ([]string, error) {
 		}
 	}
 	return found_drives, nil
+}
+
+func users() ([]string, error) {
+	clear := []string{}
+	o, err := cmdOut("net user")
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(o, "\n")
+
+	for l := range lines {
+		line := lines[l]
+		if !ContainsAny(line, []string{"accounts for", "------", "completed"}) {
+			clear = append(clear, line)
+		}
+	}
+
+	return clear, nil
+	// return strings.Fields(strings.Join(clear, " ")), nil
+	// usrs := []string{}
+	//   users, err := wapi.ListLoggedInUsers()
+	//   if err != nil {
+	//       return nil, err
+	//   }
+	//   for _, u := range(users){
+	//       usrs = append(usrs, u.FullUser())
+	//   }
+	//   return usrs, nil
 }

